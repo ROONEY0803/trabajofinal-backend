@@ -18,5 +18,4 @@ obj/
 ## macOS
 .DS_Store
 
-## Secrets
-.env
+
