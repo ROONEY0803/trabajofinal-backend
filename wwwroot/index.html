@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CountryRisk AI - Análisis de Inversión</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0d0d12;
+            --card: #16161d;
+            --border: #2a2a35;
+            --text: #e8e8ed;
+            --muted: #8a8a99;
+            --accent: #7c5cff;
+            --success: #22c55e;
+            --warning: #eab308;
+            --danger: #ef4444;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+        .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+        h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem; }
+        .search-row {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        .search-row input, .search-row button {
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 1rem;
+        }
+        .search-row input { flex: 1; min-width: 160px; }
+        .search-row input::placeholder { color: var(--muted); }
+        .search-row button {
+            background: var(--accent);
+            border-color: var(--accent);
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .search-row button:hover { opacity: 0.9; }
+        .error { color: var(--danger); margin-bottom: 1rem; }
+        .results { display: none; margin-top: 1.5rem; }
+        .results.visible { display: block; }
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .summary-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem;
+            text-align: center;
+        }
+        .summary-card .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; }
+        .summary-card .value { font-size: 1.25rem; font-weight: 700; margin-top: 0.25rem; }
+        .summary-card.risk-bajo .value { color: var(--success); }
+        .summary-card.risk-medio .value { color: var(--warning); }
+        .summary-card.risk-alto .value { color: var(--danger); }
+        .insight-box {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.25rem;
+            margin-bottom: 2rem;
+        }
+        .insight-box h3 { font-size: 0.9rem; color: var(--muted); margin-bottom: 0.5rem; }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+        }
+        .chart-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1rem;
+        }
+        .chart-card h3 { font-size: 0.95rem; margin-bottom: 0.75rem; }
+        .chart-container { position: relative; height: 220px; }
+        .loading { color: var(--muted); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CountryRisk AI</h1>
+        <div class="search-row">
+            <input type="text" id="countryInput" placeholder="País (ej: Chile, Kenia, México)" autofocus>
+            <input type="number" id="principalInput" placeholder="Monto USD" min="1000" max="10000000" value="250000" step="1000">
+            <button type="button" id="searchBtn">Analizar</button>
+        </div>
+        <div id="errorMsg" class="error"></div>
+        <div id="loadingMsg" class="loading"></div>
+        <div id="results" class="results">
+            <div class="insight-box" id="insightBox"></div>
+            <div class="summary-grid" id="summaryGrid"></div>
+            <div class="charts-grid" id="chartsGrid"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let charts = {};
+
+        document.getElementById('searchBtn').addEventListener('click', runAnalysis);
+        document.getElementById('countryInput').addEventListener('keypress', (e) => e.key === 'Enter' && runAnalysis());
+
+        async function runAnalysis() {
+            const country = document.getElementById('countryInput').value.trim();
+            const principal = parseInt(document.getElementById('principalInput').value, 10) || 250000;
+
+            document.getElementById('errorMsg').textContent = '';
+            document.getElementById('loadingMsg').textContent = 'Analizando...';
+            document.getElementById('results').classList.remove('visible');
+
+            if (!country) {
+                document.getElementById('errorMsg').textContent = 'Ingresa el nombre del país.';
+                document.getElementById('loadingMsg').textContent = '';
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/api/analysis/investment-outlook`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ countryName: country, principalUsd: principal })
+                });
+                const json = await res.json();
+                document.getElementById('loadingMsg').textContent = '';
+
+                if (json.error) {
+                    document.getElementById('errorMsg').textContent = json.error;
+                    return;
+                }
+
+                renderResults(json.data);
+            } catch (err) {
+                document.getElementById('loadingMsg').textContent = '';
+                document.getElementById('errorMsg').textContent = 'Error de conexión. ¿Está corriendo la API en ' + API_BASE + '?';
+            }
+        }
+
+        function renderResults(data) {
+            document.getElementById('results').classList.add('visible');
+
+            document.getElementById('insightBox').innerHTML = `
+                <h3>Análisis de IA</h3>
+                <p>${data.insight || '—'}</p>
+            `;
+
+            const riskClass = data.riskLevel === 'BAJO' ? 'risk-bajo' : data.riskLevel === 'MEDIO' ? 'risk-medio' : 'risk-alto';
+            document.getElementById('summaryGrid').innerHTML = `
+                <div class="summary-card ${riskClass}">
+                    <div class="label">Riesgo</div>
+                    <div class="value">${data.riskLevel}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Score</div>
+                    <div class="value">${data.riskScore}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">Decisión</div>
+                    <div class="value">${data.decision}</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">ROI anual</div>
+                    <div class="value">${(data.roiAnnual.base * 100).toFixed(1)}%</div>
+                </div>
+                <div class="summary-card">
+                    <div class="label">5 años</div>
+                    <div class="value">$${data.projection.y5.finalBase.toLocaleString()}</div>
+                </div>
+            `;
+
+            destroyCharts();
+            const ec = data.economicCharts;
+            const grid = document.getElementById('chartsGrid');
+            grid.innerHTML = '';
+
+            if (ec && (ec.gdpGrowth?.length || ec.inflation?.length ||
+                ec.unemployment?.length || ec.publicDebt?.length)) {
+                if (ec.gdpGrowth?.length) {
+                    const div = document.createElement('div');
+                    div.className = 'chart-card';
+                    div.innerHTML = '<h3>Crecimiento PIB (%)</h3><div class="chart-container"><canvas id="chartGdp"></canvas></div>';
+                    grid.appendChild(div);
+                    renderChart('chartGdp', ec.gdpGrowth, 'Crecimiento PIB', 'rgb(124, 92, 255)');
+                }
+                if (ec.inflation?.length) {
+                    const div = document.createElement('div');
+                    div.className = 'chart-card';
+                    div.innerHTML = '<h3>Inflación (%)</h3><div class="chart-container"><canvas id="chartInflation"></canvas></div>';
+                    grid.appendChild(div);
+                    renderChart('chartInflation', ec.inflation, 'Inflación', 'rgb(234, 179, 8)');
+                }
+                if (ec.unemployment?.length) {
+                    const div = document.createElement('div');
+                    div.className = 'chart-card';
+                    div.innerHTML = '<h3>Desempleo (%)</h3><div class="chart-container"><canvas id="chartUnemployment"></canvas></div>';
+                    grid.appendChild(div);
+                    renderChart('chartUnemployment', ec.unemployment, 'Desempleo', 'rgb(34, 197, 94)');
+                }
+                if (ec.publicDebt?.length) {
+                    const div = document.createElement('div');
+                    div.className = 'chart-card';
+                    div.innerHTML = '<h3>Deuda pública (% PIB)</h3><div class="chart-container"><canvas id="chartPublicDebt"></canvas></div>';
+                    grid.appendChild(div);
+                    renderChart('chartPublicDebt', ec.publicDebt, 'Deuda pública', 'rgb(239, 68, 68)');
+                }
+            }
+        }
+
+        function renderChart(canvasId, series, label, color) {
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            const valid = (series || []).filter(s => s.value != null);
+            charts[canvasId] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: valid.map(s => s.year),
+                    datasets: [{
+                        label,
+                        data: valid.map(s => s.value),
+                        borderColor: color,
+                        backgroundColor: color + '33',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(42,42,53,0.5)' },
+                            ticks: { color: '#8a8a99' }
+                        },
+                        y: {
+                            grid: { color: 'rgba(42,42,53,0.5)' },
+                            ticks: { color: '#8a8a99' }
+                        }
+                    }
+                }
+            });
+        }
+
+        function destroyCharts() {
+            Object.values(charts).forEach(c => c.destroy());
+            charts = {};
+        }
+    </script>
+</body>
+</html>
